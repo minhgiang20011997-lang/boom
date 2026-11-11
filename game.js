@@ -610,7 +610,7 @@ function draw(){
   drawDrops(); drawSanta();
   const vg=ctx.createLinearGradient(0,0,0,ROWS*T); vg.addColorStop(0,'rgba(255,255,255,.10)'); vg.addColorStop(0.45,'rgba(255,255,255,0)'); vg.addColorStop(1,'rgba(18,48,90,.10)');
   ctx.fillStyle=vg; ctx.fillRect(0,0,COLS*T,ROWS*T);
-  drawFestive(lastDt); drawTexts();
+  drawFestive(lastDt); drawTexts(); drawSays(lastDt);
 }
 
 /* ---------- HUD ---------- */
@@ -642,6 +642,8 @@ const KEYS={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',ArrowLeft:'left'
 function press(d){ const k=held.indexOf(d); if(k>=0) held.splice(k,1); held.push(d); }
 function release(d){ const k=held.indexOf(d); if(k>=0) held.splice(k,1); }
 window.addEventListener('keydown',ev=>{
+  if(ev.target.tagName==='INPUT') return;
+  if(ev.code==='Enter'&&ev.target.tagName!=='BUTTON'){ $('chatIn').focus(); ev.preventDefault(); return; }
   if(state==='menu'||state==='over') return;
   const d=KEYS[ev.code];
   if(d){ press(d); ev.preventDefault(); }
@@ -694,7 +696,7 @@ function nickOf(peer){ const p=people().find(q=>q.peer===peer); return p?(cleanN
 function push(p){ if(R) R.presence(p).catch(()=>{}); }
 function sharedRoom(){
   return {peers:()=>roomCap.peers(), presence:p=>roomCap.presence(p), onPeers:(h,e)=>roomCap.onPeers(h,e),
-    leave:()=>roomCap.presence({nick:null,host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:null})};
+    leave:()=>roomCap.presence({nick:null,host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:null,c:null})};
 }
 async function enterRoom(code,asHost){
   nick=cleanNick($('nick').value)||'Người chơi';
@@ -710,7 +712,7 @@ async function enterRoom(code,asHost){
     else { $('netMsg').textContent='Không vào được phòng. Hãy thử lại sau ít phút.'; return; }
   }
   R=room; roomCode=code; mode=asHost?'host':'client'; phase='lobby'; seats=[]; hadHost=false; lastN=-1; cRound=-1; res=-1; state='menu';
-  hostAt=Date.now();
+  hostAt=Date.now(); chatSeen.clear(); $('chatLog').textContent='';
   push(asHost?{nick,host:1,hostAt,phase,seats:[],round}:{nick,inp:[0,bSeq,kSeq]});
   unsub=R.onPeers(onPeers,()=>leaveRoom('Mất kết nối với phòng.'));
   $('netMsg').textContent='';
@@ -914,6 +916,65 @@ $('copyCode').addEventListener('click',()=>{
   catch(e){ window.getSelection().selectAllChildren($('roomCode')); }
 });
 
+/* ---------- chat: each player shares their latest line through presence; everyone shows it over that player's character ---------- */
+const EMOJI=['😂','😭','😡','😎','👍'], STICK=['snowman','santa_rider','gift1'];
+const chatSeen=new Map(); let chatAt=-1e9;
+const cleanMsg=s=>[...String(s).replace(/\s+/g,' ').trim()].slice(0,40).join('');
+function say(txt){
+  txt=cleanMsg(txt);
+  if(!txt||performance.now()-chatAt<400) return;
+  chatAt=performance.now();
+  if(R) push({c:[Date.now(),txt]}); else showSay(player,player.name,txt);
+}
+function chatPoll(){
+  const h=mode==='host'?null:hostPeer(), ss=mode==='host'?seats:(h&&Array.isArray(h.presence.seats)?h.presence.seats:[]);
+  for(const p of people()){
+    const c=p.presence.c, q=Array.isArray(c)?c[0]:0;
+    if(!chatSeen.has(p.peer)){ chatSeen.set(p.peer,q); continue; }   /* first sight: don't replay an old line */
+    if(q===chatSeen.get(p.peer)) continue;
+    chatSeen.set(p.peer,q);
+    const txt=q&&typeof c[1]==='string'?cleanMsg(c[1]):''; if(!txt) continue;
+    showSay(ents[ss.indexOf(p.peer)],nickOf(p.peer)||'Người chơi',txt);
+  }
+}
+function showSay(e,name,txt){
+  const st=txt[0]===':'&&STICK.includes(txt.slice(1))?txt.slice(1):'';
+  if(e&&(state==='play'||state==='ending')) e.say={txt,st,big:/^[\p{Extended_Pictographic}\uFE0F\u200D]{1,4}$/u.test(txt),t:3};
+  const row=document.createElement('div'), b=document.createElement('b'), log=$('chatLog');
+  b.textContent=name+': ';
+  row.append(b,st?Object.assign(new Image(),{src:'assets/'+st+'.png',alt:'sticker'}):txt);
+  log.append(row); while(log.children.length>3) log.firstChild.remove();
+  tone(880,0.06,'sine',0.03);
+}
+function drawSays(dt){
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const e of ents){
+    const s=e.say; if(!s) continue;
+    s.t-=dt; if(s.t<=0){ e.say=null; continue; }
+    const pop=Math.min(1,0.3+(3-s.t)*6), x=(e.x+.5)*T, y=(e.y+.5)*T+(e.y<0.8?52:-34);   /* top row: no room above, show below */
+    ctx.globalAlpha=Math.min(1,s.t*3);
+    if(s.st) spr(s.st,x,y+8,44*pop,44*pop);
+    else if(s.big){ ctx.fillStyle=INK; ctx.font=Math.round(30*pop)+'px sans-serif'; ctx.fillText(s.txt,x,y-10); }
+    else {
+      ctx.font='600 12px "Be Vietnam Pro",system-ui,sans-serif';
+      const w=Math.min(200,ctx.measureText(s.txt).width)+14, bx=Math.max(2,Math.min(COLS*T-w-2,x-w/2)), by=y-24;
+      ctx.fillStyle='#fff'; ctx.strokeStyle=INK; ctx.lineWidth=2; rr(bx,by,w,22,9); ctx.fill(); ctx.stroke();
+      ctx.fillStyle=INK; ctx.fillText(s.txt,bx+w/2,by+12,200);
+    }
+  }
+  ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
+}
+EMOJI.concat(STICK.map(s=>':'+s)).forEach(m=>{
+  const b=document.createElement('button'); b.type='button';
+  if(m[0]===':') b.append(Object.assign(new Image(),{src:'assets/'+m.slice(1)+'.png',alt:'Sticker '+m.slice(1)})); else b.textContent=m;
+  b.addEventListener('click',()=>{ say(m); b.blur(); });
+  $('quick').append(b);
+});
+$('chatForm').addEventListener('submit',ev=>{
+  ev.preventDefault(); const i=$('chatIn'); say(i.value); i.value='';
+  if(state==='play'||state==='ending') i.blur();
+});
+
 /* ---------- loop ---------- */
 let last=0, lastDt=0;
 function frame(ts){
@@ -924,6 +985,7 @@ function frame(ts){
     update(dt);
     if(mode==='host'&&state!=='over'){ sendAcc+=dt; if(sendAcc>=0.066){ sendAcc=0; push({g:snap()}); } }
   } else clock+=dt;
+  if(R) chatPoll();
   draw(); hud();
   requestAnimationFrame(frame);
 }
