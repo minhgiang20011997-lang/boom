@@ -9,6 +9,9 @@ let santa=null, santaT=10, drops=[], texts=[];
 let balloons=[], ents=[], parts=[], player=null;
 let state='menu', endT=0, stage=1, best=0, clock=0, frameNo=0, mode='solo', mySeat=0;
 try{ best=+localStorage.getItem('bn-best')||0 }catch(e){}
+/* betting: play-money only. bet is set while a bots-only match you wagered on is running */
+let bet=null, coins=100, betPick=0, betStake=10;
+try{ const c=localStorage.getItem('bn-coin'); if(c!==null) coins=+c||0 }catch(e){}
 
 /* ---------- sound ---------- */
 let ac=null, muted=false;
@@ -333,9 +336,16 @@ function update(dt){
   texts=texts.filter(t=>t.life>0);
   updateSanta(dt);
 
+  /* bots left alone can dodge each other forever, so after 45s a bet match rains balloons, faster and wider over time */
+  if(bet&&state==='play'&&bet.t>45&&(bet.rain-=dt)<=0){
+    if(!bet.rain) texts.push({x:COLS*T/2,y:ROWS*T/2-70,txt:'Mưa bóng nước!',life:2});
+    bet.rain=Math.max(0.2,1.2-(bet.t-45)*0.02);
+    const free=[]; for(let i=0;i<N;i++) if(tiles[i]===0&&!bal[i]) free.push(i);
+    if(free.length){ const i=free[Math.random()*free.length|0], b={i,c:i%COLS,r:(i/COLS)|0,owner:{active:0},range:2+((bet.t-45)/20|0),t:FUSE}; bal[i]=b; balloons.push(b); }
+  }
   if(state==='play'){
     const alive=ents.filter(e=>e.alive);
-    const done=mode==='solo'?(!player.alive||!alive.some(e=>e.bot)):(alive.length<=1||!alive.some(e=>!e.bot));
+    const done=bet?(!player.alive||alive.length<=1||(bet.t+=dt)>150):mode==='solo'?(!player.alive||!alive.some(e=>e.bot)):(alive.length<=1||!alive.some(e=>!e.bot));
     if(done){ state='ending'; endT=1.2; }
   } else if(state==='ending'){
     endT-=dt; if(endT<=0) finish();
@@ -343,6 +353,7 @@ function update(dt){
 }
 function finish(){
   if(mode!=='solo'){ finishOnline(); return; }
+  if(bet){ finishBet(); return; }
   state='over';
   const won=player.alive;
   if(won){
@@ -365,8 +376,31 @@ function initAudio(){
 }
 function startGame(){
   initAudio();
-  mode='solo'; mySeat=0; newWorld(); state='play'; held.length=0; wantDrop=false;
+  mode='solo'; mySeat=0; bet=null; newWorld(); state='play'; held.length=0; wantDrop=false;
   view(null);
+}
+function showBet(){
+  if(betStake>coins) betStake=10;
+  $('betCoins').textContent='Bạn có '+coins+' xu. Chọn nhân vật bạn tin sẽ thắng; đoán đúng được thêm gấp 3 tiền cược.';
+  [...$('betPicks').children].forEach((b,k)=>b.setAttribute('aria-pressed',k===betPick));
+  [...$('betStakes').children].forEach(b=>{ b.disabled=+b.dataset.v>coins; b.setAttribute('aria-pressed',+b.dataset.v===betStake); });
+  view('bet');
+}
+function startBet(){
+  initAudio();
+  mode='solo'; mySeat=betPick; bet={stake:betStake,t:0,rain:0}; newWorld([]); state='play'; held.length=0; wantDrop=false;
+  view(null);
+}
+function finishBet(){
+  state='over';
+  const draw=player.alive&&ents.filter(e=>e.alive).length>1;   /* ran out of time */
+  const d=draw?0:player.alive?bet.stake*3:-bet.stake;
+  coins+=d; let more=draw?'Trận kéo dài quá lâu nên trả lại tiền cược.':'';
+  if(coins<=0){ coins=50; more='Bạn hết xu rồi, tặng bạn 50 xu để chơi tiếp.'; }
+  try{ localStorage.setItem('bn-coin',coins) }catch(e){}
+  if(d>0) sfx.win(); else sfx.lose();
+  head(draw?'Hòa, hết giờ':d>0?player.name+' thắng! +'+d+' xu':player.name+' bị loại, −'+bet.stake+' xu',more);
+  bet=null; hudKey=''; showBet();
 }
 
 /* ---------- drawing ---------- */
@@ -624,17 +658,18 @@ function buildChips(){
   });
 }
 function hud(){
-  const key=ents.map(e=>e.alive?(e.trapped?'t':'a'):'x').join('')+[player.cap,player.range,player.speed,player.needles,stage,best,mode,roomCode].join(',');
+  const key=ents.map(e=>e.alive?(e.trapped?'t':'a'):'x').join('')+ents.map(e=>e.none?1:0).join('')+[player.cap,player.range,player.speed,player.needles,stage,best,mode,roomCode,bet?coins:''].join(',');
   if(key===hudKey) return; hudKey=key;
   ents.forEach((e,i)=>{
     const el=$('chip'+i); if(!el) return;
+    el.hidden=!!e.none;
     el.className='chip'+(e.alive?(e.trapped?' trap':''):' out');
     el.querySelector('span').textContent=e.alive?(e.trapped?'bị nhốt':'đang chơi'):'bị loại';
   });
   $('sCap').textContent=player.cap; $('sRange').textContent=player.range;
   $('sSpeed').textContent=Math.round((player.speed-BASE_SPEED)/0.45)+1;
   $('sPin').textContent=player.needles; $('btnPin').textContent='Kim '+player.needles;
-  $('stage').textContent=mode==='solo'?'Màn '+stage:'Phòng '+roomCode.toUpperCase(); $('best').textContent='Kỷ lục '+best;
+  $('stage').textContent=bet?'Đặt cược':mode==='solo'?'Màn '+stage:'Phòng '+roomCode.toUpperCase(); $('best').textContent=bet?'Xu '+coins:'Kỷ lục '+best;
 }
 
 /* ---------- input ---------- */
@@ -663,13 +698,25 @@ $('btnPin').addEventListener('pointerdown',ev=>{ ev.preventDefault(); doNeedle()
 window.addEventListener('touchstart',()=>document.body.classList.add('touch'),{once:true,passive:true});
 document.addEventListener('contextmenu',ev=>{ if(ev.target.closest('.pad')) ev.preventDefault(); });
 $('go').addEventListener('click',startGame);
+SEATS.forEach((s,k)=>{
+  const b=document.createElement('button'); b.type='button';
+  b.append(Object.assign(new Image(),{src:'assets/'+s[0]+'.png',alt:''}),s[3]);
+  b.addEventListener('click',()=>{ betPick=k; showBet(); }); $('betPicks').append(b);
+});
+[10,20,50].forEach(v=>{
+  const b=document.createElement('button'); b.type='button'; b.className='btn2'; b.dataset.v=v; b.textContent=v+' xu';
+  b.addEventListener('click',()=>{ betStake=v; showBet(); }); $('betStakes').append(b);
+});
+$('goBet').addEventListener('click',()=>{ head('Đặt cược','Bốn máy tự đấu với nhau, bạn chỉ ngồi xem.'); showBet(); });
+$('betGo').addEventListener('click',startBet);
+$('betBack').addEventListener('click',()=>{ head(HOME_TITLE,HOME_TEXT); view('main'); });
 $('mute').addEventListener('click',()=>{ muted=!muted; $('mute').textContent='Âm thanh: '+(muted?'tắt':'bật'); });
 
 /* ---------- online: the room owner runs the match and shares it through presence ---------- */
 const NDIR=[null,[0,-1],[0,1],[-1,0],[1,0]], DNAME=['','up','down','left','right'];
 const HOME_TITLE='Nhốt hết đối thủ vào bong bóng';
 const HOME_TEXT='Đặt bóng nước để phá hộp quà và nhốt đối thủ. Chạm vào kẻ đang bị nhốt để loại họ. Nếu chính bạn bị nhốt, dùng kim để thoát. Ông già Noel sẽ bay ngang sân và thả 10 vật phẩm.';
-let roomCap=null, R=null, unsub=null, roomCode='', myPeer='', seats=[], phase='lobby', round=0, hostAt=0, sendAcc=0, tick=0, res=-1;
+let roomCap=null, R=null, unsub=null, roomCode='', myPeer='', seats=[], phase='lobby', round=0, hostAt=0, sendAcc=0, tick=0, res=-1, bots=0;
 let bSeq=0, kSeq=0, lastInp='', lastN=-1, cRound=-1, hadHost=false, joinTimer=0, nick='';
 try{ nick=localStorage.getItem('bn-nick')||'' }catch(e){}
 const capP=(window.claude&&window.claude.use)?window.claude.use('room').then(c=>{ roomCap=c; return c; }).catch(()=>null):Promise.resolve(null);
@@ -677,10 +724,10 @@ const capP=(window.claude&&window.claude.use)?window.claude.use('room').then(c=>
 function head(t,x){ $('ovTitle').textContent=t; $('ovText').textContent=x||''; }
 function view(v){
   $('overlay').hidden=!v;
-  $('ovBtns').hidden=v!=='main'; $('joinView').hidden=v!=='join'; $('roomView').hidden=v!=='room';
+  $('ovBtns').hidden=v!=='main'; $('joinView').hidden=v!=='join'; $('roomView').hidden=v!=='room'; $('betView').hidden=v!=='bet';
   $('ovText').hidden=!$('ovText').textContent;
 }
-function doNeedle(){ if(mode==='client') kSeq++; else useNeedle(player); }
+function doNeedle(){ if(bet) return; if(mode==='client') kSeq++; else useNeedle(player); }
 const cleanNick=s=>String(s==null?'':s).replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯﻿]/g,'').trim().slice(0,12);
 const people=()=>R?R.peers().filter(p=>p.kind==='viewer'&&p.presence&&typeof p.presence.nick==='string'):[];
 function hostPeer(){
@@ -696,7 +743,7 @@ function nickOf(peer){ const p=people().find(q=>q.peer===peer); return p?(cleanN
 function push(p){ if(R) R.presence(p).catch(()=>{}); }
 function sharedRoom(){
   return {peers:()=>roomCap.peers(), presence:p=>roomCap.presence(p), onPeers:(h,e)=>roomCap.onPeers(h,e),
-    leave:()=>roomCap.presence({nick:null,host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:null,c:null})};
+    leave:()=>roomCap.presence({nick:null,host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:null,c:null,bots:null})};
 }
 async function enterRoom(code,asHost){
   nick=cleanNick($('nick').value)||'Người chơi';
@@ -711,9 +758,9 @@ async function enterRoom(code,asHost){
     else if(e&&(e.code==='not_granted'||e.code==='revoked')){ $('netMsg').textContent='Không vào được phòng. Hãy thử lại sau ít phút.'; return; }
     else { $('netMsg').textContent='Không vào được phòng. Hãy thử lại sau ít phút.'; return; }
   }
-  R=room; roomCode=code; mode=asHost?'host':'client'; phase='lobby'; seats=[]; hadHost=false; lastN=-1; cRound=-1; res=-1; state='menu';
+  R=room; roomCode=code; mode=asHost?'host':'client'; phase='lobby'; seats=[]; bots=0; hadHost=false; lastN=-1; cRound=-1; res=-1; state='menu';
   hostAt=Date.now(); chatSeen.clear(); $('chatLog').textContent='';
-  push(asHost?{nick,host:1,hostAt,phase,seats:[],round}:{nick,inp:[0,bSeq,kSeq]});
+  push(asHost?{nick,host:1,hostAt,phase,seats:[],bots,round}:{nick,inp:[0,bSeq,kSeq]});
   unsub=R.onPeers(onPeers,()=>leaveRoom('Mất kết nối với phòng.'));
   $('netMsg').textContent='';
   head('Phòng chơi online',''); renderRoom();
@@ -734,12 +781,13 @@ function onPeers(){
     const h=hostPeer();
     if(h&&h.peer!==myPeer&&phase!=='play'){
       mode='client'; state='menu'; hadHost=true;
-      push({host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:[0,bSeq,kSeq]});
+      push({host:null,hostAt:null,phase:null,seats:null,bots:null,names:null,round:null,res:null,g:null,inp:[0,bSeq,kSeq]});
     } else if(phase!=='play'){
       const here=people().map(p=>p.peer);
       const next=[myPeer].concat(seats.filter(x=>x!==myPeer&&here.includes(x)));
       for(const x of here) if(next.length<4&&!next.includes(x)) next.push(x);
-      if(next.join()!==seats.join()){ seats=next; push({seats}); }
+      const nb=Math.min(bots,4-next.length);
+      if(next.join()!==seats.join()||nb!==bots){ seats=next; bots=nb; push({seats,bots}); }
     }
   }
   if(!$('roomView').hidden) renderRoom();
@@ -748,20 +796,22 @@ function renderRoom(){
   const h=mode==='host'?null:hostPeer();
   const ss=mode==='host'?seats:(h&&Array.isArray(h.presence.seats)?h.presence.seats:[]);
   const ph=mode==='host'?phase:(h?h.presence.phase:'lobby');
+  const nb=mode==='host'?bots:(h?h.presence.bots|0:0);
   const ul=$('seatList'); ul.textContent='';
   for(let k=0;k<4;k++){
     const li=document.createElement('li'), dot=document.createElement('i'), sp=document.createElement('span');
     dot.style.background=SEATS[k][1];
     const nm=ss[k]?nickOf(ss[k]):null;
-    sp.textContent=nm?nm+(ss[k]===myPeer?' (bạn)':'')+(k===0?' · chủ':''):'Máy chơi';
-    if(!nm) li.className='bot';
+    sp.textContent=nm?nm+(ss[k]===myPeer?' (bạn)':'')+(k===0?' · chủ':''):k<ss.length+nb?'Máy chơi':'Trống';
+    if(!nm&&k>=ss.length+nb) li.className='bot';
     li.append(dot,sp); ul.append(li);
   }
   $('roomCode').textContent=roomCode.toUpperCase();
-  $('startOnline').hidden=mode!=='host';
+  $('startOnline').hidden=mode!=='host'; $('startOnline').disabled=seats.length+bots<2;
+  $('botRow').hidden=mode!=='host'; $('botN').textContent='Máy: '+bots;
   $('startOnline').textContent=phase==='over'?'Ván mới':'Bắt đầu';
   const seated=ss.includes(myPeer);
-  $('roomNote').textContent=mode==='host'?'Gửi mã phòng cho bạn bè. Chỗ trống sẽ do máy chơi.'
+  $('roomNote').textContent=mode==='host'?'Gửi mã phòng cho bạn bè, hoặc tự thêm máy. Cần ít nhất 2 người chơi (tính cả máy).'
     :!h?'Đang tìm phòng…'
     :ph==='play'&&!seated?'Ván đang diễn ra. Bạn sẽ vào chơi ở ván sau.'
     :!seated&&ss.length>=4?'Phòng đã đủ 4 người.'
@@ -782,11 +832,12 @@ function snap(){
     d:drops.map(d=>[d.i,'brsn'.indexOf(d.type),Math.round(d.fx),Math.round(d.p*100)])};
 }
 function startOnline(){
-  if(mode!=='host') return;
+  if(mode!=='host'||seats.length+bots<2) return;
   initAudio();
   const names=seats.map(x=>nickOf(x)||'Người chơi'); if(!names.length) names.push(nick);
   const ps=people();
-  mySeat=0; newWorld(names);
+  mySeat=0; bet=null; newWorld(names);
+  for(let k=names.length+bots;k<4;k++){ ents[k].alive=false; ents[k].none=true; }   /* empty seats: nobody there */
   for(let k=1;k<names.length;k++){
     const p=ps.find(q=>q.peer===seats[k]), inp=p&&Array.isArray(p.presence.inp)?p.presence.inp:[0,0,0];
     ents[k].net={d:0,lb:inp[1],lk:inp[2],drop:false,pin:false,gone:0};
@@ -841,6 +892,7 @@ function applySnap(g,fresh){
   g.e.forEach((a,k)=>{
     const e=ents[k]; if(!Array.isArray(a)) return;
     const alive=!!(a[2]&1), trapped=!!(a[2]&2);
+    if(fresh) e.none=!alive;
     e.tx=a[0]/100; e.ty=a[1]/100;
     if(fresh||Math.abs(e.tx-e.x)+Math.abs(e.ty-e.y)>2.5){ e.x=e.tx; e.y=e.ty; }
     if(!fresh&&e.alive&&!alive){ burst((e.x+.5)*T,(e.y+.5)*T,e.color,18); burst((e.x+.5)*T,(e.y+.5)*T,'#ffffff',8); sfx.pop(); }
@@ -909,6 +961,13 @@ $('joinRoom').addEventListener('click',()=>{
   enterRoom(code,false);
 });
 $('startOnline').addEventListener('click',startOnline);
+function addBots(d){
+  if(mode!=='host'||phase==='play') return;
+  const nb=Math.max(0,Math.min(4-seats.length,bots+d));
+  if(nb!==bots){ bots=nb; push({bots}); renderRoom(); }
+}
+$('botMore').addEventListener('click',()=>addBots(1));
+$('botLess').addEventListener('click',()=>addBots(-1));
 $('leaveRoom').addEventListener('click',()=>leaveRoom());
 $('copyCode').addEventListener('click',()=>{
   const b=$('copyCode'), done=()=>{ b.textContent='Đã chép'; setTimeout(()=>{ b.textContent='Chép mã'; },1500); };

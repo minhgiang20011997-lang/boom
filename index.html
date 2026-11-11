@@ -89,6 +89,15 @@ button:focus-visible{outline:3px solid var(--sun); outline-offset:2px}
 .code{font:800 24px var(--display); letter-spacing:.14em; flex:1; text-align:center; -webkit-user-select:text; user-select:text}
 .note{margin:0; font-size:12px; color:var(--muted); text-align:center; line-height:1.4}
 .net .go{align-self:center}
+.go:disabled,.btn2:disabled{opacity:.45; cursor:default}
+.picks{display:grid; grid-template-columns:repeat(4,1fr); gap:4px}
+.picks button{display:flex; flex-direction:column; align-items:center; gap:2px; background:#fff; color:var(--ink); border:2px solid var(--ink); border-radius:10px; padding:4px 2px; font:600 11px var(--body); cursor:pointer; min-width:0}
+.picks img{height:34px}
+.picks button[aria-pressed=true]{background:var(--sun)}
+.stakes{justify-content:center}
+.stakes .btn2{background:#fff}
+.stakes .btn2[aria-pressed=true]{background:var(--sun)}
+#botN{flex:1}
 .chat{display:flex; flex-direction:column; gap:4px}
 .chatlog{color:var(--paper); font-size:12px; line-height:1.4; overflow-wrap:anywhere}
 .chatlog img{height:18px; vertical-align:middle}
@@ -122,6 +131,7 @@ body.touch .pad{display:flex} body.touch .keys{display:none}
         <div class="btns" id="ovBtns">
           <button class="go" id="go" type="button">Chơi với máy</button>
           <button class="go alt" id="goOnline" type="button">Chơi online</button>
+          <button class="btn2" id="goBet" type="button">Đặt cược xem máy đấu</button>
         </div>
         <div class="net" id="joinView" hidden>
           <label for="nick">Tên của bạn</label>
@@ -132,9 +142,17 @@ body.touch .pad{display:flex} body.touch .keys{display:none}
           <p class="note" id="netMsg" role="status"></p>
           <button class="link" id="backSolo" type="button">Quay lại</button>
         </div>
+        <div class="net" id="betView" hidden>
+          <p class="note" id="betCoins" role="status"></p>
+          <div class="picks" id="betPicks"></div>
+          <div class="row stakes" id="betStakes"></div>
+          <button class="go" id="betGo" type="button">Xem trận</button>
+          <button class="link" id="betBack" type="button">Quay lại</button>
+        </div>
         <div class="net" id="roomView" hidden>
           <div class="row"><span class="code" id="roomCode"></span><button class="btn2" id="copyCode" type="button">Chép mã</button></div>
           <ul class="seats" id="seatList"></ul>
+          <div class="row" id="botRow"><button class="btn2" id="botLess" type="button" aria-label="Bớt một máy">− Máy</button><span class="note" id="botN">Máy: 0</span><button class="btn2" id="botMore" type="button" aria-label="Thêm một máy">+ Máy</button></div>
           <p class="note" id="roomNote" role="status"></p>
           <button class="go" id="startOnline" type="button">Bắt đầu</button>
           <button class="link" id="leaveRoom" type="button">Rời phòng</button>
