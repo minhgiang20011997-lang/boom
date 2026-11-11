@@ -821,7 +821,7 @@ function renderRoom(){
   $('botRow').hidden=mode!=='host'; $('botN').textContent='Máy: '+bots;
   $('startOnline').textContent=phase==='over'?'Ván mới':'Bắt đầu';
   const seated=ss.includes(myPeer);
-  $('roomNote').textContent=mode==='host'?'Gửi mã phòng cho bạn bè, hoặc tự thêm máy. Cần ít nhất 2 người chơi (tính cả máy).'
+  $('roomNote').textContent=mode==='host'?(PUB.includes(roomCode)?'Bạn bè sẽ thấy phòng này trong danh sách phòng':'Phòng riêng: gửi mã phòng cho bạn bè')+', hoặc tự thêm máy. Cần ít nhất 2 người chơi (tính cả máy).'
     :!h?'Đang tìm phòng…'
     :ph==='play'&&!seated?'Ván đang diễn ra. Bạn sẽ vào chơi ở ván sau.'
     :!seated&&ss.length>=4?'Phòng đã đủ 4 người.'
@@ -960,29 +960,48 @@ function clientFrame(dt){
 }
 $('goOnline').addEventListener('click',()=>{
   initAudio(); head('Chơi online','Đặt tên, rồi tạo phòng hoặc nhập mã phòng bạn bè gửi.');
-  $('nick').value=nick; $('netMsg').textContent='Đang kiểm tra kết nối…'; view('join'); $('nick').focus(); peekRooms();
+  $('nick').value=nick; $('netMsg').textContent='Đang kiểm tra kết nối…'; view('join'); $('nick').focus(); $('roomList').textContent=''; $('roomsNote').textContent='Đang tìm phòng…'; peekRooms();
   capP.then(c=>{ if(!$('joinView').hidden&&!R) $('netMsg').textContent=c?'Đã sẵn sàng. Tạo phòng hoặc nhập mã phòng.':'Không tải được phần kết nối online. Hãy kiểm tra mạng rồi tải lại trang.'; });
 });
-/* shared rooms anyone can pick from a list. entering as host is safe: if someone already hosts, onPeers() demotes us to a guest */
-const PUB=['1','2','3','4','5','6'];
-PUB.forEach(c=>{
-  const b=document.createElement('button'), n=document.createElement('b'), s=document.createElement('span');
-  b.type='button'; n.textContent='Phòng '+c; s.id='rs'+c; b.append(n,s);
-  b.addEventListener('click',()=>enterRoom(c,true)); $('roomList').append(b);
-});
+/* room list. there is no server to ask "which rooms exist", so every listed room lives in one of 12 numbered slots that
+   anyone can look into. creating a room takes the first empty slot; the list shows the slots that have people in them.
+   entering as host is safe: if someone already hosts, onPeers() demotes us to a guest */
+const PUB=Array.from({length:12},(_,k)=>String(k+1));
+let peeking=null;
 function peekRooms(){
-  PUB.forEach(c=>{ $('rs'+c).textContent='…'; });
-  capP.then(cap=>{
-    if(!cap||!cap.peek){ PUB.forEach(c=>{ $('rs'+c).textContent=''; }); return; }
-    cap.peek(PUB.map(c=>'bn-'+c)).then(o=>PUB.forEach(c=>{ const r=o['bn-'+c]; $('rs'+c).textContent=r?(r.play?'đang chơi · ':'')+r.n+'/4':'trống'; }));
+  if(peeking) return peeking;
+  return peeking=capP.then(cap=>cap&&cap.peek?cap.peek(PUB.map(c=>'bn-'+c)):null).catch(()=>null).then(o=>{
+    peeking=null;
+    const box=$('roomList'); box.textContent='';
+    if(!o){ $('roomsNote').textContent='Không xem được danh sách phòng. Hãy nhập mã phòng bên dưới.'; return null; }
+    for(const c of PUB){
+      const r=o['bn-'+c]; if(!r) continue;
+      const b=document.createElement('button'), n=document.createElement('b'), s=document.createElement('span');
+      b.type='button'; n.textContent='Phòng '+c+(cleanNick(r.host)?' · '+cleanNick(r.host):''); s.textContent=(r.play?'đang chơi · ':'')+r.n+'/4 người';
+      b.append(n,s); b.addEventListener('click',()=>enterRoom(c,true)); box.append(b);
+    }
+    $('roomsNote').textContent=box.children.length?'':'Chưa có phòng nào đang mở. Bấm "Tạo phòng" để mở phòng mới.';
+    return o;
   });
 }
-$('refreshRooms').addEventListener('click',peekRooms);
+$('refreshRooms').addEventListener('click',()=>{ $('roomsNote').textContent='Đang tìm phòng…'; peekRooms(); });
+setInterval(()=>{ if(!R&&!$('overlay').hidden&&!$('joinView').hidden) peekRooms(); },6000);
 $('backSolo').addEventListener('click',()=>{ head(HOME_TITLE,HOME_TEXT); view('main'); });
 $('mkRoom').addEventListener('click',()=>{
+  $('netMsg').textContent='Đang tạo phòng…';
+  peekRooms().then(o=>{
+    if(R) return;
+    const free=o?PUB.find(c=>!o['bn-'+c]):null;
+    if(free) enterRoom(free,true);
+    else if(o) $('netMsg').textContent='Các phòng đều đang có người. Hãy vào một phòng trong danh sách.';
+    else mkPrivate();
+  });
+});
+function mkPrivate(){
   const A='abcdefghjkmnpqrstuvwxyz23456789';
   enterRoom(Array.from({length:4},()=>A[Math.random()*A.length|0]).join(''),true);
-});
+}
+$('mkPrivate').addEventListener('click',mkPrivate);
 $('joinRoom').addEventListener('click',()=>{
   const code=$('code').value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,6);
   if(!code){ $('netMsg').textContent='Hãy nhập mã phòng bạn bè gửi cho bạn.'; return; }

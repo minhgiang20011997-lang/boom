@@ -70,20 +70,27 @@
   /* look into several rooms without joining: a hub greets every new connection with everyone's presence, and we never introduce ourselves */
   function peek(names){
     return new Promise(resolve=>{
-      const out={}; let p=null;
-      const done=()=>{ try{ p.destroy() }catch(e){} resolve(out); };
+      const out={}, pending=new Set(names); let p=null, over=false;
+      const done=()=>{ if(over) return; over=true; try{ p.destroy() }catch(e){} resolve(out); };
+      const settle=n=>{ pending.delete(n); if(!pending.size) done(); };
       try{ p=new Peer(); }catch(e){ resolve(out); return; }
       p.on('open',()=>{
         names.forEach(n=>{
           const seen=new Map(), c=p.connect(PRE+n,{reliable:true,serialization:'json'});
           c.on('data',m=>{
             if(!m||m.t!=='p'||!m.p||typeof m.p.nick!=='string') return;
-            seen.set(m.id,m.p); out[n]={n:seen.size,play:[...seen.values()].some(q=>q.host&&q.phase==='play')};
+            if(!seen.size) setTimeout(()=>settle(n),500);   /* the rest of that room's greetings follow right behind */
+            seen.set(m.id,m.p);
+            const all=[...seen.values()], h=all.find(q=>q.host);
+            out[n]={n:seen.size,play:all.some(q=>q.host&&q.phase==='play'),host:h?h.nick:''};
           });
         });
-        setTimeout(done,2500);
+        setTimeout(done,4000);
       });
-      p.on('error',e=>{ if(!e||e.type!=='peer-unavailable') done(); });   /* peer-unavailable just means that room is empty */
+      p.on('error',e=>{
+        if(!e||e.type!=='peer-unavailable'){ done(); return; }   /* peer-unavailable just means that room is empty */
+        const n=names.find(x=>String(e.message||'').endsWith(PRE+x)); if(n) settle(n);
+      });
       setTimeout(done,8000);
     });
   }

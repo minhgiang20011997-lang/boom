@@ -99,7 +99,8 @@ button:focus-visible{outline:3px solid var(--sun); outline-offset:2px}
 .stakes .btn2{background:#fff}
 .stakes .btn2[aria-pressed=true]{background:var(--sun)}
 #botN{flex:1}
-.rooms{display:grid; grid-template-columns:repeat(3,1fr); gap:4px}
+.rooms{display:grid; grid-template-columns:1fr 1fr; gap:4px}
+.rooms b{max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .rooms button{display:flex; flex-direction:column; align-items:center; background:#fff; color:var(--ink); border:2px solid var(--ink); border-radius:10px; padding:4px 2px; font:600 11px var(--body); cursor:pointer; min-width:0}
 .rooms b{font:800 14px var(--display)}
 .rooms span{color:var(--muted); min-height:1.3em}
@@ -142,13 +143,15 @@ body.touch .pad{display:flex} body.touch .keys{display:none}
         <div class="net" id="joinView" hidden>
           <label for="nick">Tên của bạn</label>
           <input id="nick" type="text" maxlength="12" autocomplete="off" placeholder="Ví dụ: Giang">
-          <label>Chọn phòng chung</label>
+          <button class="btn2" id="mkRoom" type="button">Tạo phòng</button>
+          <label>Phòng đang mở</label>
           <div class="rooms" id="roomList"></div>
+          <p class="note" id="roomsNote" role="status"></p>
           <button class="link" id="refreshRooms" type="button">Làm mới danh sách</button>
-          <button class="btn2" id="mkRoom" type="button">Tạo phòng riêng</button>
           <label for="code">Hoặc nhập mã phòng bạn bè gửi</label>
           <div class="row"><input id="code" type="text" maxlength="6" autocomplete="off" placeholder="Mã phòng"><button class="btn2" id="joinRoom" type="button">Vào phòng</button></div>
           <p class="note" id="netMsg" role="status"></p>
+          <button class="link" id="mkPrivate" type="button">Tạo phòng riêng tư (không hiện trong danh sách)</button>
           <button class="link" id="backSolo" type="button">Quay lại</button>
         </div>
         <div class="net" id="betView" hidden>
@@ -197,8 +200,8 @@ body.touch .pad{display:flex} body.touch .keys{display:none}
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="net.js"></script>
-<script src="game.js"></script>
+<script src="net.js?v=5"></script>
+<script src="game.js?v=5"></script>
 
 </body>
 </html>
