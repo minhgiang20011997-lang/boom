@@ -39,6 +39,7 @@ body{
 h1{font-family:var(--display); font-weight:800; font-size:clamp(22px,5.5vw,32px); line-height:1; margin:0; color:var(--paper); text-shadow:0 3px 0 var(--ink); letter-spacing:.01em}
 .meta{display:flex; align-items:center; gap:8px}
 .tag{background:var(--ink); color:var(--paper); border-radius:999px; padding:4px 12px; font-weight:600; font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap}
+.icon-btn[aria-pressed=true]{background:var(--sun)}
 .icon-btn{background:var(--paper); color:var(--ink); border:2px solid var(--ink); border-radius:999px; padding:3px 12px; font:600 12px var(--body); cursor:pointer}
 .chips{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
 .chip{background:var(--paper); border:2px solid var(--ink); border-radius:12px; padding:5px 8px; display:flex; align-items:center; gap:7px; min-width:0}
@@ -98,6 +99,10 @@ button:focus-visible{outline:3px solid var(--sun); outline-offset:2px}
 .stakes .btn2{background:#fff}
 .stakes .btn2[aria-pressed=true]{background:var(--sun)}
 #botN{flex:1}
+.rooms{display:grid; grid-template-columns:repeat(3,1fr); gap:4px}
+.rooms button{display:flex; flex-direction:column; align-items:center; background:#fff; color:var(--ink); border:2px solid var(--ink); border-radius:10px; padding:4px 2px; font:600 11px var(--body); cursor:pointer; min-width:0}
+.rooms b{font:800 14px var(--display)}
+.rooms span{color:var(--muted); min-height:1.3em}
 .chat{display:flex; flex-direction:column; gap:4px}
 .chatlog{color:var(--paper); font-size:12px; line-height:1.4; overflow-wrap:anywhere}
 .chatlog img{height:18px; vertical-align:middle}
@@ -118,6 +123,7 @@ body.touch .pad{display:flex} body.touch .keys{display:none}
     <div class="meta">
       <span class="tag" id="stage">Màn 1</span>
       <span class="tag" id="best">Kỷ lục 0</span>
+      <button class="icon-btn" id="auto" type="button" aria-pressed="false">Tự chơi: tắt</button>
       <button class="icon-btn" id="mute" type="button">Âm thanh: bật</button>
     </div>
   </div>
@@ -136,8 +142,11 @@ body.touch .pad{display:flex} body.touch .keys{display:none}
         <div class="net" id="joinView" hidden>
           <label for="nick">Tên của bạn</label>
           <input id="nick" type="text" maxlength="12" autocomplete="off" placeholder="Ví dụ: Giang">
-          <button class="btn2" id="mkRoom" type="button">Tạo phòng mới</button>
-          <label for="code">Hoặc vào phòng của bạn bè</label>
+          <label>Chọn phòng chung</label>
+          <div class="rooms" id="roomList"></div>
+          <button class="link" id="refreshRooms" type="button">Làm mới danh sách</button>
+          <button class="btn2" id="mkRoom" type="button">Tạo phòng riêng</button>
+          <label for="code">Hoặc nhập mã phòng bạn bè gửi</label>
           <div class="row"><input id="code" type="text" maxlength="6" autocomplete="off" placeholder="Mã phòng"><button class="btn2" id="joinRoom" type="button">Vào phòng</button></div>
           <p class="note" id="netMsg" role="status"></p>
           <button class="link" id="backSolo" type="button">Quay lại</button>

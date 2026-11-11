@@ -67,5 +67,25 @@
       setTimeout(fail,15000);
     });
   }
-  window.claude={use:n=>Promise.resolve(n==='room'?{join}:null)};
+  /* look into several rooms without joining: a hub greets every new connection with everyone's presence, and we never introduce ourselves */
+  function peek(names){
+    return new Promise(resolve=>{
+      const out={}; let p=null;
+      const done=()=>{ try{ p.destroy() }catch(e){} resolve(out); };
+      try{ p=new Peer(); }catch(e){ resolve(out); return; }
+      p.on('open',()=>{
+        names.forEach(n=>{
+          const seen=new Map(), c=p.connect(PRE+n,{reliable:true,serialization:'json'});
+          c.on('data',m=>{
+            if(!m||m.t!=='p'||!m.p||typeof m.p.nick!=='string') return;
+            seen.set(m.id,m.p); out[n]={n:seen.size,play:[...seen.values()].some(q=>q.host&&q.phase==='play')};
+          });
+        });
+        setTimeout(done,2500);
+      });
+      p.on('error',e=>{ if(!e||e.type!=='peer-unavailable') done(); });   /* peer-unavailable just means that room is empty */
+      setTimeout(done,8000);
+    });
+  }
+  window.claude={use:n=>Promise.resolve(n==='room'?{join,peek}:null)};
 })();

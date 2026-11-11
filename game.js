@@ -10,6 +10,9 @@ let balloons=[], ents=[], parts=[], player=null;
 let state='menu', endT=0, stage=1, best=0, clock=0, frameNo=0, mode='solo', mySeat=0;
 try{ best=+localStorage.getItem('bn-best')||0 }catch(e){}
 /* betting: play-money only. bet is set while a bots-only match you wagered on is running */
+let matchT=0, rainT=0, rainOn=false;   /* match clock; balloons rain down once it passes RAIN_AT */
+const RAIN_AT=210, RAIN_AT_BET=45;
+let autoPlay=false;   /* the bot brain drives your own character; e.auto is separate from e.bot so win rules still count you as a person */
 let bet=null, coins=100, betPick=0, betStake=10;
 try{ const c=localStorage.getItem('bn-coin'); if(c!==null) coins=+c||0 }catch(e){}
 
@@ -50,7 +53,7 @@ function mk(name,color,dark,c,r,bot){
 }
 function newWorld(names){
   names=names||['Bạn'];
-  tiles.fill(0); items.fill(0); bal.fill(null); flames.fill(0); itemT.fill(0); balloons=[]; parts=[]; santa=null; santaT=10; drops=[]; texts=[];
+  tiles.fill(0); items.fill(0); bal.fill(null); flames.fill(0); itemT.fill(0); balloons=[]; parts=[]; santa=null; santaT=10; drops=[]; texts=[]; matchT=0; rainT=0; rainOn=false;
   const keep=new Set();
   for(const [c,r] of [[0,0],[COLS-1,0],[0,ROWS-1],[COLS-1,ROWS-1]]){
     const sx=c?-1:1, sy=r?-1:1;
@@ -69,7 +72,7 @@ function newWorld(names){
 const SEATS=[['p_pink','#ff5fa2','#c42f73','Mèo',0,0],['p_green','#58c96e','#2c8f43','Bơ',COLS-1,0],['p_purple','#9a6bff','#6238c9','Mận',0,ROWS-1],['p_blue','#2f7df0','#1b4fb0','Bạc Hà',COLS-1,ROWS-1]];
 function makeEnts(names,humans){
   ents=SEATS.map((s,k)=>{ const e=mk(names[k]||s[3],s[1],s[2],s[4],s[5],k>=humans); e.kind=s[0]; e.x0=k; e.tx=e.x; e.ty=e.y; return e; });
-  player=ents[mySeat]||ents[0];
+  player=ents[mySeat]||ents[0]; player.auto=autoPlay;
   buildChips(); hudKey='';
 }
 
@@ -291,7 +294,7 @@ function update(dt){
 
   for(const e of ents){
     if(!e.alive) continue;
-    if(e.bot){ updateBot(e,dt); continue; }
+    if(e.bot||e.auto){ updateBot(e,dt); continue; }
     let dir=null, drop=false;
     if(e===player){ dir=held.length?DIRMAP[held[held.length-1]]:null; drop=wantDrop; }
     else if(e.net){
@@ -336,16 +339,18 @@ function update(dt){
   texts=texts.filter(t=>t.life>0);
   updateSanta(dt);
 
-  /* bots left alone can dodge each other forever, so after 45s a bet match rains balloons, faster and wider over time */
-  if(bet&&state==='play'&&bet.t>45&&(bet.rain-=dt)<=0){
-    if(!bet.rain) texts.push({x:COLS*T/2,y:ROWS*T/2-70,txt:'Mưa bóng nước!',life:2});
-    bet.rain=Math.max(0.2,1.2-(bet.t-45)*0.02);
+  /* a match that drags on gets a rain of balloons on random free cells, faster and wider over time, so everyone has to run.
+     bet matches start it early: bots left alone can dodge each other forever */
+  const r0=bet?RAIN_AT_BET:RAIN_AT;
+  if(state==='play'&&(matchT+=dt)>r0&&(rainT-=dt)<=0){
+    if(!rainOn){ rainOn=true; texts.push({x:COLS*T/2,y:ROWS*T/2-70,txt:'Mưa bóng nước!',life:2.5}); sfx.bell(); }
+    rainT=Math.max(0.2,1.2-(matchT-r0)*0.02);
     const free=[]; for(let i=0;i<N;i++) if(tiles[i]===0&&!bal[i]) free.push(i);
-    if(free.length){ const i=free[Math.random()*free.length|0], b={i,c:i%COLS,r:(i/COLS)|0,owner:{active:0},range:2+((bet.t-45)/20|0),t:FUSE}; bal[i]=b; balloons.push(b); }
+    if(free.length){ const i=free[Math.random()*free.length|0], b={i,c:i%COLS,r:(i/COLS)|0,owner:{active:0},range:2+((matchT-r0)/20|0),t:FUSE}; bal[i]=b; balloons.push(b); }
   }
   if(state==='play'){
     const alive=ents.filter(e=>e.alive);
-    const done=bet?(!player.alive||alive.length<=1||(bet.t+=dt)>150):mode==='solo'?(!player.alive||!alive.some(e=>e.bot)):(alive.length<=1||!alive.some(e=>!e.bot));
+    const done=bet?(!player.alive||alive.length<=1||matchT>150):mode==='solo'?(!player.alive||!alive.some(e=>e.bot)):(alive.length<=1||!alive.some(e=>!e.bot));
     if(done){ state='ending'; endT=1.2; }
   } else if(state==='ending'){
     endT-=dt; if(endT<=0) finish();
@@ -388,7 +393,7 @@ function showBet(){
 }
 function startBet(){
   initAudio();
-  mode='solo'; mySeat=betPick; bet={stake:betStake,t:0,rain:0}; newWorld([]); state='play'; held.length=0; wantDrop=false;
+  mode='solo'; mySeat=betPick; bet={stake:betStake}; newWorld([]); state='play'; held.length=0; wantDrop=false;
   view(null);
 }
 function finishBet(){
@@ -698,6 +703,11 @@ $('btnPin').addEventListener('pointerdown',ev=>{ ev.preventDefault(); doNeedle()
 window.addEventListener('touchstart',()=>document.body.classList.add('touch'),{once:true,passive:true});
 document.addEventListener('contextmenu',ev=>{ if(ev.target.closest('.pad')) ev.preventDefault(); });
 $('go').addEventListener('click',startGame);
+$('auto').addEventListener('click',()=>{
+  autoPlay=!autoPlay; $('auto').textContent='Tự chơi: '+(autoPlay?'bật':'tắt'); $('auto').setAttribute('aria-pressed',autoPlay);
+  if(player){ player.auto=autoPlay; player.goal=-1; player.wait=0; }
+  $('auto').blur();
+});
 SEATS.forEach((s,k)=>{
   const b=document.createElement('button'); b.type='button';
   b.append(Object.assign(new Image(),{src:'assets/'+s[0]+'.png',alt:''}),s[3]);
@@ -743,7 +753,7 @@ function nickOf(peer){ const p=people().find(q=>q.peer===peer); return p?(cleanN
 function push(p){ if(R) R.presence(p).catch(()=>{}); }
 function sharedRoom(){
   return {peers:()=>roomCap.peers(), presence:p=>roomCap.presence(p), onPeers:(h,e)=>roomCap.onPeers(h,e),
-    leave:()=>roomCap.presence({nick:null,host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:null,c:null,bots:null})};
+    leave:()=>roomCap.presence({nick:null,host:null,hostAt:null,phase:null,seats:null,names:null,round:null,res:null,g:null,inp:null,c:null,bots:null,auto:null})};
 }
 async function enterRoom(code,asHost){
   nick=cleanNick($('nick').value)||'Người chơi';
@@ -758,7 +768,7 @@ async function enterRoom(code,asHost){
     else if(e&&(e.code==='not_granted'||e.code==='revoked')){ $('netMsg').textContent='Không vào được phòng. Hãy thử lại sau ít phút.'; return; }
     else { $('netMsg').textContent='Không vào được phòng. Hãy thử lại sau ít phút.'; return; }
   }
-  R=room; roomCode=code; mode=asHost?'host':'client'; phase='lobby'; seats=[]; bots=0; hadHost=false; lastN=-1; cRound=-1; res=-1; state='menu';
+  R=room; roomCode=code; mode=asHost?'host':'client'; phase='lobby'; seats=[]; bots=0; lastInp=''; hadHost=false; lastN=-1; cRound=-1; res=-1; state='menu';
   hostAt=Date.now(); chatSeen.clear(); $('chatLog').textContent='';
   push(asHost?{nick,host:1,hostAt,phase,seats:[],bots,round}:{nick,inp:[0,bSeq,kSeq]});
   unsub=R.onPeers(onPeers,()=>leaveRoom('Mất kết nối với phòng.'));
@@ -806,7 +816,7 @@ function renderRoom(){
     if(!nm&&k>=ss.length+nb) li.className='bot';
     li.append(dot,sp); ul.append(li);
   }
-  $('roomCode').textContent=roomCode.toUpperCase();
+  $('roomCode').textContent=PUB.includes(roomCode)?'Phòng '+roomCode:roomCode.toUpperCase();
   $('startOnline').hidden=mode!=='host'; $('startOnline').disabled=seats.length+bots<2;
   $('botRow').hidden=mode!=='host'; $('botN').textContent='Máy: '+bots;
   $('startOnline').textContent=phase==='over'?'Ván mới':'Bắt đầu';
@@ -824,7 +834,7 @@ function snap(){
     m+=tiles[i]?tiles[i]:(items[i]||'0');
     if(flames[i]>0) f.push(i*64+Math.max(1,Math.min(63,Math.round(flames[i]/FLAME*63))));
   }
-  return {n:++tick,m,f,
+  return {n:++tick,m,f,w:rainOn?1:0,
     e:ents.map(e=>[Math.round(e.x*100),Math.round(e.y*100),(e.alive?1:0)|(e.trapped?2:0)|(e.moving?4:0)|(e.inv>0?8:0)|(e.bot?16:0),
       Math.max(0,DIRS.findIndex(d=>d[0]===e.face[0]&&d[1]===e.face[1])),e.cap,e.range,Math.round(e.speed*100),e.needles]),
     b:balloons.map(b=>[b.i,Math.round(b.t*100),b.range]),
@@ -857,6 +867,7 @@ function hostInputs(dt){
       continue;
     }
     e.net.gone=0;
+    const au=!!p.presence.auto; if(au!==!!e.auto){ e.auto=au; e.goal=-1; e.wait=0; }
     const inp=p.presence.inp; if(!Array.isArray(inp)) continue;
     e.net.d=inp[0]|0;
     if(inp[1]!==e.net.lb){ e.net.lb=inp[1]; e.net.drop=true; }
@@ -908,13 +919,15 @@ function applySnap(g,fresh){
     if(!santa){ santa={x:g.s}; if(!fresh) sfx.bell(); }
     if(Math.abs(santa.x-g.s)>40) santa.x=g.s;
   } else santa=null;
+  if(g.w&&!rainOn&&!fresh){ texts.push({x:COLS*T/2,y:ROWS*T/2-70,txt:'Mưa bóng nước!',life:2.5}); sfx.bell(); }
+  rainOn=!!g.w;
   drops=Array.isArray(g.d)?g.d.filter(d=>Array.isArray(d)&&d[0]>=0&&d[0]<N&&'brsn'[d[1]]).map(d=>({i:d[0],type:'brsn'[d[1]],fx:d[2],fy:SANTA_Y-6,p:Math.min(0.99,d[3]/100)})):[];
 }
 function clientFrame(dt){
   clock+=dt; frameNo++;
   if(wantDrop){ bSeq++; wantDrop=false; }
-  const d=held.length?DNAME.indexOf(held[held.length-1]):0, key=d+','+bSeq+','+kSeq;
-  if(key!==lastInp){ lastInp=key; push({inp:[d,bSeq,kSeq]}); }
+  const d=held.length?DNAME.indexOf(held[held.length-1]):0, key=d+','+bSeq+','+kSeq+','+autoPlay;
+  if(key!==lastInp){ lastInp=key; push({inp:[d,bSeq,kSeq],auto:autoPlay?1:null}); }
   const h=hostPeer();
   if(!h){ if(hadHost) leaveRoom('Chủ phòng đã rời phòng.'); return; }
   hadHost=true;
@@ -947,9 +960,24 @@ function clientFrame(dt){
 }
 $('goOnline').addEventListener('click',()=>{
   initAudio(); head('Chơi online','Đặt tên, rồi tạo phòng hoặc nhập mã phòng bạn bè gửi.');
-  $('nick').value=nick; $('netMsg').textContent='Đang kiểm tra kết nối…'; view('join'); $('nick').focus();
+  $('nick').value=nick; $('netMsg').textContent='Đang kiểm tra kết nối…'; view('join'); $('nick').focus(); peekRooms();
   capP.then(c=>{ if(!$('joinView').hidden&&!R) $('netMsg').textContent=c?'Đã sẵn sàng. Tạo phòng hoặc nhập mã phòng.':'Không tải được phần kết nối online. Hãy kiểm tra mạng rồi tải lại trang.'; });
 });
+/* shared rooms anyone can pick from a list. entering as host is safe: if someone already hosts, onPeers() demotes us to a guest */
+const PUB=['1','2','3','4','5','6'];
+PUB.forEach(c=>{
+  const b=document.createElement('button'), n=document.createElement('b'), s=document.createElement('span');
+  b.type='button'; n.textContent='Phòng '+c; s.id='rs'+c; b.append(n,s);
+  b.addEventListener('click',()=>enterRoom(c,true)); $('roomList').append(b);
+});
+function peekRooms(){
+  PUB.forEach(c=>{ $('rs'+c).textContent='…'; });
+  capP.then(cap=>{
+    if(!cap||!cap.peek){ PUB.forEach(c=>{ $('rs'+c).textContent=''; }); return; }
+    cap.peek(PUB.map(c=>'bn-'+c)).then(o=>PUB.forEach(c=>{ const r=o['bn-'+c]; $('rs'+c).textContent=r?(r.play?'đang chơi · ':'')+r.n+'/4':'trống'; }));
+  });
+}
+$('refreshRooms').addEventListener('click',peekRooms);
 $('backSolo').addEventListener('click',()=>{ head(HOME_TITLE,HOME_TEXT); view('main'); });
 $('mkRoom').addEventListener('click',()=>{
   const A='abcdefghjkmnpqrstuvwxyz23456789';
